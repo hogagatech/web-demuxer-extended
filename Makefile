@@ -33,7 +33,6 @@ WEB_DEMUXER_ARGS = \
 		-s EXPORT_ES6=1 \
 		-s INVOKE_RUN=0 \
 		-s ENVIRONMENT=worker \
-		-s ASYNCIFY \
 		-s ALLOW_MEMORY_GROWTH=1
 
 

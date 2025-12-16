@@ -590,93 +590,118 @@ WebAVPacketList get_av_packets(std::string filename, double timestamp, int seek_
     return web_packet_list;
 }
 
-int read_av_packet(std::string filename, double start, double end, int type, int wanted_stream_nb, int seek_flag, val js_caller)
-{
-    AVFormatContext *fmt_ctx = NULL;
-    int ret;
+/**
+ * reading av packets as a stream, returns iterator object to be used by JS
+ * Lifecycle:
+ * 1) AVPacketReader* read_av_packet_init(...) -> nullptr on error
+ * 2) read_av_packet_next(reader) -> WebAVPacket | null
+ * 3) ~AVPacketReader(reader) -> releases resources and deletes reader (idempotent)
+ *     for emscripten, JS has responsibility of calling destructor, exposed by .delete()
+ */
 
-    if ((ret = avformat_open_input(&fmt_ctx, filename.c_str(), NULL, NULL)) < 0)
-    {
-        av_log(NULL, AV_LOG_ERROR, "Cannot open input file\n");
-        avformat_close_input(&fmt_ctx);
-        return 0;
-    }
+class AVPacketReader {
+private:
+    AVFormatContext *fmt_ctx = nullptr;
+    int stream_index = -1;
+    double end = 0.0; // 0 => no end limit
+    bool finished = false;
+    bool error = false;
 
-    if ((ret = avformat_find_stream_info(fmt_ctx, NULL)) < 0)
-    {
-        av_log(NULL, AV_LOG_ERROR, "Cannot find stream information\n");
-        avformat_close_input(&fmt_ctx);
-        return 0;
-    }
-
-    int stream_index = av_find_best_stream(fmt_ctx, (AVMediaType)type, wanted_stream_nb, -1, NULL, 0);
-
-    if (stream_index < 0)
-    {
-        av_log(NULL, AV_LOG_ERROR, "Cannot find wanted stream in the input file\n");
-        avformat_close_input(&fmt_ctx);
-        return 0;
-    }
-
-    AVPacket *packet = NULL;
-    packet = av_packet_alloc();
-
-    if (!packet)
-    {
-        av_log(NULL, AV_LOG_ERROR, "Cannot allocate packet\n");
-        avformat_close_input(&fmt_ctx);
-        return 0;
-    }
-
-    if (start > 0)
-    {
-        int64_t start_timestamp = (int64_t)(start * AV_TIME_BASE);
-        int64_t rescaled_start_time_stamp = av_rescale_q(start_timestamp, AV_TIME_BASE_Q, fmt_ctx->streams[stream_index]->time_base);
-
-        if ((ret = av_seek_frame(fmt_ctx, stream_index, rescaled_start_time_stamp, seek_flag)) < 0)
-        {
-            av_log(NULL, AV_LOG_ERROR, "Cannot seek to the specified timestamp\n");
-            avformat_close_input(&fmt_ctx);
-            av_packet_unref(packet);
-            av_packet_free(&packet);
-            return 0;
+public:
+    // constructor not used
+    AVPacketReader() = default;
+    // called by .delete() in js
+    ~AVPacketReader() {
+        if (this->fmt_ctx) {
+            avformat_close_input(&this->fmt_ctx);
+            this->fmt_ctx = nullptr;
         }
     }
 
-    while (av_read_frame(fmt_ctx, packet) >= 0)
+    bool is_finished() const {
+        return finished;
+    }
+    bool has_error() const {
+        return error;
+    }
+    // init reader for iteration
+    static std::unique_ptr<AVPacketReader> create(
+        std::string filename, double start, double end, int type, int wanted_stream_nb, int seek_flag
+    )
     {
-        if (packet->stream_index == stream_index)
-        {
-            WebAVPacket web_packet;
+        AVFormatContext *fmt_ctx = NULL;
+        int ret;
+        if ((ret = avformat_open_input(&fmt_ctx, filename.c_str(), NULL, NULL)) < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot open input file\n");
+            avformat_close_input(&fmt_ctx);
+            return nullptr;
+        }
+        if ((ret = avformat_find_stream_info(fmt_ctx, NULL)) < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot find stream information\n");
+            avformat_close_input(&fmt_ctx);
+            return nullptr;
+        }
+        int stream_index = av_find_best_stream(fmt_ctx, (AVMediaType)type, wanted_stream_nb, -1, NULL, 0);
+        if (stream_index < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot find wanted stream in the input file\n");
+            avformat_close_input(&fmt_ctx);
+            return nullptr;
+        }
 
-            gen_web_packet(web_packet, packet, fmt_ctx->streams[stream_index]);
-
-            if (end > 0 && web_packet.timestamp > end)
-            {
-                break;
+        if (start > 0) {
+            int64_t start_timestamp = (int64_t)(start * AV_TIME_BASE);
+            int64_t rescaled_start_time_stamp = av_rescale_q(start_timestamp, AV_TIME_BASE_Q, fmt_ctx->streams[stream_index]->time_base);
+            if ((ret = av_seek_frame(fmt_ctx, stream_index, rescaled_start_time_stamp, seek_flag)) < 0) {
+                av_log(NULL, AV_LOG_ERROR, "Cannot seek to the specified timestamp\n");
+                avformat_close_input(&fmt_ctx);
+                return nullptr;
             }
+        }
 
-            // call js method to send packet
-            val result = js_caller.call<val>("sendAVPacket", web_packet).await();
-            int send_result = result.as<int>();
+        std::unique_ptr<AVPacketReader> reader(new AVPacketReader());
+        reader->fmt_ctx = fmt_ctx;
+        reader->stream_index = stream_index;
+        reader->end = end;
+        reader->finished = false;
+        return reader;
+    }
 
-            if (send_result == 0)
-            {
-                break;
+    std::unique_ptr<WebAVPacket> read_next_av_packet()
+    {
+        if (this->finished || !fmt_ctx) {
+            this->finished = true;
+            return nullptr;
+        }
+
+        AVPacket *packet = av_packet_alloc();
+        if (!packet) {
+            av_log(NULL, AV_LOG_ERROR, "Cannot allocate packet\n");
+            this->finished = true;
+            this->error = true;
+            return nullptr;
+        }
+
+        while (av_read_frame(fmt_ctx, packet) >= 0) {
+            if (packet->stream_index == this->stream_index) {
+                WebAVPacket web_packet;
+                gen_web_packet(web_packet, packet, fmt_ctx->streams[this->stream_index]);
+                av_packet_unref(packet);
+                av_packet_free(&packet);
+                if (this->end > 0 && web_packet.timestamp > this->end) {
+                    this->finished = true; // reached end boundary
+                    return nullptr;
+                }
+                // ownership to caller
+                return std::make_unique<WebAVPacket>(web_packet);
             }
+            av_packet_unref(packet);
         }
         av_packet_unref(packet);
+        av_packet_free(&packet);
+        this->finished = true;
+        return nullptr;
     }
-
-    // call js method to end send packet
-    js_caller.call<val>("sendAVPacket", 0).await();
-
-    avformat_close_input(&fmt_ctx);
-    av_packet_unref(packet);
-    av_packet_free(&packet);
-
-    return 1;
-}
+};
 
 void set_av_log_level(int level) {
     av_log_set_level(level);
@@ -754,7 +779,14 @@ EMSCRIPTEN_BINDINGS(web_demuxer)
     function("get_media_info", &get_media_info, return_value_policy::take_ownership());
     function("get_av_packet", &get_av_packet, return_value_policy::take_ownership());
     function("get_av_packets", &get_av_packets, return_value_policy::take_ownership());
-    function("read_av_packet", &read_av_packet);
+    // read_av_packet: yield packets in iterative fashion
+    class_<AVPacketReader>("AVPacketReader")
+        .function("is_finished", &AVPacketReader::is_finished)
+        .function("has_error", &AVPacketReader::has_error)
+        .class_function("create", &AVPacketReader::create)
+        .function("read_next_av_packet", &AVPacketReader::read_next_av_packet)
+        ;
+
     function("set_av_log_level", &set_av_log_level);
 
     register_vector<uint8_t>("vector<uint8_t>");
