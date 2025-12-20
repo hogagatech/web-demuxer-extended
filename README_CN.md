@@ -88,8 +88,8 @@ const demuxer = new WebDemuxer({
 ```
 
 ## 在线示例
-- [获取视频帧](https://foreversc.github.io/web-demuxer/#example-seek) | [源码](https://github.com/bilibili/web-demuxer/blob/main/index.html#L131-L157)
-- [播放视频](https://foreversc.github.io/web-demuxer/#example-play) | [源码](https://github.com/bilibili/web-demuxer/blob/main/index.html#L159-L197)
+- [获取视频帧](https://bilibili.github.io/web-demuxer/#example-seek) | [源码](https://github.com/bilibili/web-demuxer/blob/main/index.html#L131-L157)
+- [播放视频](https://bilibili.github.io/web-demuxer/#example-play) | [源码](https://github.com/bilibili/web-demuxer/blob/main/index.html#L159-L197)
 
 ## API
 

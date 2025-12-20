@@ -88,8 +88,8 @@ const demuxer = new WebDemuxer({
 ```
 
 ## Live Examples
-- [Seek Video Frame](https://foreversc.github.io/web-demuxer/#example-seek) | [Source Code](https://github.com/bilibili/web-demuxer/blob/main/index.html#L131-L157)
-- [Play Video](https://foreversc.github.io/web-demuxer/#example-play) | [Source Code](https://github.com/bilibili/web-demuxer/blob/main/index.html#L159-L197)
+- [Seek Video Frame](https://bilibili.github.io/web-demuxer/#example-seek) | [Source Code](https://github.com/bilibili/web-demuxer/blob/main/index.html#L131-L157)
+- [Play Video](https://bilibili.github.io/web-demuxer/#example-play) | [Source Code](https://github.com/bilibili/web-demuxer/blob/main/index.html#L159-L197)
 
 ## API
 
