@@ -17,7 +17,7 @@ MINI_DEMUX_ARGS = \
 	--enable-demuxer=mov,mp4,m4a,3gp,3g2,matroska,webm,m4v
 
 DEMUX_ARGS = \
-	--enable-decoder=h264,hevc,vp9,vp8 \
+	--enable-decoder=h264,hevc,vp9,vp8,flv,mpeg4,mjpeg,mp3 \
 	--enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2,avi,flv,matroska,webm,m4v,mpeg,asf,mpegts \
 
 WEB_DEMUXER_ARGS = \
@@ -33,7 +33,8 @@ WEB_DEMUXER_ARGS = \
 		-s EXPORT_ES6=1 \
 		-s INVOKE_RUN=0 \
 		-s ENVIRONMENT=worker \
-		-s ALLOW_MEMORY_GROWTH=1
+		-s ALLOW_MEMORY_GROWTH=1 \
+		-s EXPORTED_RUNTIME_METHODS="['FS']"
 
 
 WEB_DEMUXER_DEV_ARGS = \
